@@ -30,9 +30,12 @@ This system implements a complete 5-phase pipeline for document search and summa
 - **Performance Metrics**: Response time, memory usage
 
 ### Phase 5: Interface & Deployment
-- **Streamlit Interface**: Local web interface
-- **Query Processing**: Auto-suggestion, dynamic summary length
-- **Result Display**: Pagination, source attribution
+- **Streamlit Interface**: Local web interface with enhanced features
+- **PDF Upload**: Upload and process new PDF files dynamically
+- **Query Processing**: Enhanced auto-suggestions based on document content
+- **Result Display**: Pagination, source attribution, accuracy scores
+- **Summary Customization**: Adjustable summary lengths (short/medium/long)
+- **Accuracy Metrics**: Individual result accuracy scores and relevance indicators
 
 ## 🏗️ System Architecture
 
@@ -239,11 +242,14 @@ TEST_SET_RATIO = 0.2
 
 ### User-Friendly Interface
 - ✅ **Streamlit Web Interface**: Easy-to-use web application
+- ✅ **PDF Upload & Processing**: Upload new PDFs and automatically rebuild embeddings
+- ✅ **Enhanced Auto-Suggestions**: Context-aware query suggestions based on document content
+- ✅ **Accuracy Scoring**: Individual result accuracy metrics with color-coded relevance
 - ✅ **Real-time Search**: Instant search results and summaries
-- ✅ **Query Suggestions**: AI-generated query suggestions
-- ✅ **Pagination**: Navigate through multiple search results
+- ✅ **Advanced Pagination**: Enhanced result display with improved navigation
 - ✅ **Source Attribution**: Clear document and page references
 - ✅ **Performance Monitoring**: Real-time system statistics
+- ✅ **Summary Statistics**: Word count, sentence count, generation time tracking
 
 ## 🔍 Example Queries
 

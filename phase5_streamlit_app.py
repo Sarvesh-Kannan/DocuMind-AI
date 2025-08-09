@@ -35,18 +35,25 @@ class Phase5StreamlitApp:
         self.local_llm = Phase3LocalLLM()
         self.evaluator = Phase4Evaluator()
         
-        self.is_initialized = False
-        self.documents_df = None
+        # Initialize session state
+        if 'is_initialized' not in st.session_state:
+            st.session_state.is_initialized = False
+        if 'documents_df' not in st.session_state:
+            st.session_state.documents_df = None
+        if 'query_suggestions' not in st.session_state:
+            st.session_state.query_suggestions = []
+        if 'performance_data' not in st.session_state:
+            st.session_state.performance_data = []
         
-        # Performance tracking
-        self.performance_data = []
-        
-        # Query suggestions cache
-        self.query_suggestions = []
+        # Use session state
+        self.is_initialized = st.session_state.is_initialized
+        self.documents_df = st.session_state.documents_df
+        self.query_suggestions = st.session_state.query_suggestions
+        self.performance_data = st.session_state.performance_data
     
     def upload_and_process_pdfs(self, uploaded_files) -> bool:
         """
-        Upload and process new PDF files
+        Upload and process new PDF files - REPLACE existing corpus entirely
         
         Args:
             uploaded_files: List of uploaded files from Streamlit
@@ -59,6 +66,7 @@ class Phase5StreamlitApp:
         
         try:
             processed_files = []
+            all_chunks = []  # Start fresh with only uploaded files
             
             with st.spinner(f"Processing {len(uploaded_files)} uploaded PDF(s)..."):
                 for uploaded_file in uploaded_files:
@@ -71,19 +79,12 @@ class Phase5StreamlitApp:
                         # Process the uploaded PDF
                         chunks = self.data_processor.process_document(tmp_path)
                         if chunks:
-                            # Create DataFrame for new chunks
-                            new_df = pd.DataFrame(chunks)
-                            
                             # Update file metadata to use original filename
-                            new_df['file_name'] = uploaded_file.name
-                            new_df['file_path'] = uploaded_file.name
+                            for chunk in chunks:
+                                chunk['file_name'] = uploaded_file.name
+                                chunk['file_path'] = uploaded_file.name
                             
-                            # Add to existing documents
-                            if self.documents_df is not None:
-                                self.documents_df = pd.concat([self.documents_df, new_df], ignore_index=True)
-                            else:
-                                self.documents_df = new_df
-                            
+                            all_chunks.extend(chunks)
                             processed_files.append(uploaded_file.name)
                             logger.info(f"Processed uploaded file: {uploaded_file.name} ({len(chunks)} chunks)")
                         
@@ -92,19 +93,31 @@ class Phase5StreamlitApp:
                         if tmp_path.exists():
                             os.unlink(tmp_path)
                 
-                if processed_files:
-                    # Rebuild embeddings with new documents
-                    st.info("Rebuilding embeddings with new documents...")
+                if all_chunks:
+                    # REPLACE documents_df with only uploaded content
+                    self.documents_df = pd.DataFrame(all_chunks)
+                    st.session_state.documents_df = self.documents_df  # Update session state
+                    
+                    # Rebuild embeddings with ONLY new documents
+                    st.info("Building embeddings for uploaded documents only...")
                     success = self.embedding_indexer.initialize_indexes(self.documents_df, force_rebuild=True)
                     
                     if success:
-                        # Update query suggestions
+                        # Update query suggestions based on uploaded content
                         self._update_query_suggestions()
+                        st.session_state.query_suggestions = self.query_suggestions  # Update session state
+                        
                         st.success(f"✅ Successfully processed {len(processed_files)} PDF(s)")
-                        st.info(f"Total documents: {len(self.documents_df)} chunks")
+                        st.info(f"📊 Working with: {len(self.documents_df)} chunks from uploaded documents only")
+                        
+                        # Show document summary
+                        unique_docs = self.documents_df['file_name'].nunique()
+                        total_pages = self.documents_df['page_number'].sum()
+                        st.info(f"📄 Documents: {unique_docs} | 📄 Pages: {total_pages} | 🔢 Chunks: {len(self.documents_df)}")
+                        
                         return True
                     else:
-                        st.error("Failed to rebuild embeddings")
+                        st.error("Failed to build embeddings")
                         return False
                 else:
                     st.warning("No files were successfully processed")
@@ -116,56 +129,85 @@ class Phase5StreamlitApp:
             return False
     
     def _update_query_suggestions(self):
-        """Update query suggestions based on current documents"""
+        """Update query suggestions based ONLY on uploaded documents"""
         try:
             if self.documents_df is not None and not self.documents_df.empty:
-                # Extract key topics from document titles and content
+                # Extract key topics from uploaded document titles and content
                 file_names = self.documents_df['file_name'].unique()
                 
                 suggestions = []
                 
-                # Generate suggestions from file names
-                for file_name in file_names[:10]:  # Limit to 10 files
+                # Generate suggestions from uploaded file names
+                for file_name in file_names:
                     clean_name = file_name.replace('.pdf', '').replace('_', ' ').replace('-', ' ')
+                    # Create specific questions about this document
                     suggestions.extend([
-                        f"What is {clean_name}?",
-                        f"Explain {clean_name}",
-                        f"How does {clean_name} work?",
-                        f"Applications of {clean_name}"
+                        f"What is {clean_name} about?",
+                        f"Summarize {clean_name}",
+                        f"Key points in {clean_name}",
+                        f"Main findings in {clean_name}",
+                        f"Methodology in {clean_name}",
+                        f"Conclusions of {clean_name}"
                     ])
                 
-                # Add general research-oriented queries
-                general_queries = [
+                # Extract key terms from document content
+                all_text = " ".join(self.documents_df['text'].head(10).tolist())  # Use first 10 chunks for keywords
+                
+                # Simple keyword extraction (you can enhance this)
+                words = all_text.lower().split()
+                
+                # Filter for meaningful terms (basic approach)
+                meaningful_words = []
+                for word in words:
+                    if (len(word) > 4 and 
+                        word.isalpha() and 
+                        word not in ['abstract', 'introduction', 'conclusion', 'references', 'paper', 'study', 'research']):
+                        meaningful_words.append(word)
+                
+                # Get most common terms
+                from collections import Counter
+                common_terms = Counter(meaningful_words).most_common(10)
+                
+                # Generate questions based on content
+                for term, count in common_terms:
+                    if count > 2:  # Only terms that appear multiple times
+                        suggestions.extend([
+                            f"What is {term}?",
+                            f"How does {term} work?",
+                            f"Explain {term} in detail",
+                            f"Applications of {term}"
+                        ])
+                
+                # Add document-specific research questions
+                content_based_queries = [
+                    "What are the main objectives?",
+                    "What methodology was used?",
                     "What are the key findings?",
-                    "What methods are used?",
-                    "What are the main challenges?",
-                    "What are the applications?",
-                    "What is the methodology?",
                     "What are the results?",
-                    "What is the conclusion?",
+                    "What are the conclusions?",
                     "What are the limitations?",
                     "What is the contribution?",
-                    "What is the innovation?",
-                    "machine learning",
-                    "deep learning",
-                    "artificial intelligence",
-                    "data science",
-                    "neural networks",
-                    "computer vision",
-                    "natural language processing",
-                    "robotics",
-                    "quantum computing",
-                    "reinforcement learning"
+                    "What future work is suggested?",
+                    "What are the implications?",
+                    "How was this research conducted?"
                 ]
                 
-                suggestions.extend(general_queries)
+                suggestions.extend(content_based_queries)
                 
                 # Remove duplicates and limit
-                self.query_suggestions = list(dict.fromkeys(suggestions))[:30]
+                self.query_suggestions = list(dict.fromkeys(suggestions))[:25]
+                
+                logger.info(f"Generated {len(self.query_suggestions)} suggestions from uploaded documents")
                 
         except Exception as e:
             logger.error(f"Error updating query suggestions: {e}")
-            self.query_suggestions = []
+            self.query_suggestions = [
+                "What is this document about?",
+                "Summarize the main points",
+                "What are the key findings?",
+                "What methodology was used?",
+                "What are the conclusions?"
+            ]
 
     def get_enhanced_query_suggestions(self, current_query: str = "") -> List[str]:
         """
@@ -238,38 +280,21 @@ class Phase5StreamlitApp:
             return 0.5
 
     def initialize_system(self, force_rebuild: bool = False) -> bool:
-        """Initialize system with existing documents"""
+        """Initialize system - ready to work with uploaded documents only"""
         try:
             with st.spinner("Initializing system..."):
-                # First, try to load existing indexes
-                if not force_rebuild and self.embedding_indexer.load_indexes():
-                    self.documents_df = self.embedding_indexer.documents
-                    self._update_query_suggestions()
-                    st.success("✅ Loaded existing indexes from disk")
-                    self.is_initialized = True
-                    return True
-                
-                # If indexes don't exist or force rebuild, process documents
-                st.info("📄 Phase 1: Processing documents...")
-                self.documents_df = self.data_processor.process_corpus()
-                
-                if self.documents_df.empty:
-                    st.error("❌ No documents processed successfully")
-                    return False
-                
-                # Phase 2: Embedding & Indexing
-                st.info("🔍 Phase 2: Building indexes...")
-                success = self.embedding_indexer.initialize_indexes(self.documents_df, force_rebuild=force_rebuild)
-                
-                if not success:
-                    st.error("❌ Failed to build indexes")
-                    return False
-                
-                # Update query suggestions
-                self._update_query_suggestions()
+                # Initialize with empty state - waiting for document upload
+                self.documents_df = None
+                self.query_suggestions = [
+                    "Please upload a PDF document first",
+                    "Upload your document to get started",
+                    "System ready for document upload"
+                ]
                 
                 self.is_initialized = True
-                st.success("✅ System initialized successfully")
+                st.session_state.is_initialized = True  # Update session state
+                st.success("✅ System ready - Please upload PDF documents to begin")
+                st.info("📋 The system will work exclusively with your uploaded documents")
                 return True
                 
         except Exception as e:
@@ -292,6 +317,9 @@ class Phase5StreamlitApp:
         """
         if not self.is_initialized:
             return {'error': 'System not initialized'}
+        
+        if self.documents_df is None or self.documents_df.empty:
+            return {'error': 'No documents uploaded. Please upload PDF documents first.'}
         
         start_time = time.time()
         initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
@@ -353,6 +381,9 @@ class Phase5StreamlitApp:
             if len(self.performance_data) > 100:
                 self.performance_data = self.performance_data[-100:]
             
+            # Update session state
+            st.session_state.performance_data = self.performance_data
+            
             return {
                 'search_results': search_results,
                 'summary': summary_result,
@@ -408,28 +439,45 @@ class Phase5StreamlitApp:
             
             # System initialization
             if not self.is_initialized:
-                # Try to auto-initialize by loading existing indexes
-                if self.embedding_indexer.load_indexes():
-                    self.documents_df = self.embedding_indexer.documents
-                    self._update_query_suggestions()
-                    self.is_initialized = True
-                    st.success("✅ Auto-loaded existing indexes")
-                else:
-                    st.info("Please initialize the system first.")
-                    if st.button("Initialize System", type="primary"):
-                        self.initialize_system()
+                st.info("Please initialize the system first.")
+                if st.button("Initialize System", type="primary"):
+                    self.initialize_system()
             else:
-                st.success("✅ System Initialized")
-                if st.button("Reinitialize System"):
-                    self.initialize_system(force_rebuild=True)
+                st.success("✅ System Ready")
+                if st.button("Reset System"):
+                    # Reset to clean state
+                    self.documents_df = None
+                    self.query_suggestions = [
+                        "Please upload a PDF document first",
+                        "Upload your document to get started",
+                        "System ready for document upload"
+                    ]
+                    # Update session state
+                    st.session_state.documents_df = None
+                    st.session_state.query_suggestions = self.query_suggestions
+                    st.success("✅ System reset - ready for new documents")
+                    st.rerun()  # Force refresh after reset
             
             # Document statistics
-            if self.is_initialized and self.documents_df is not None:
+            current_docs = st.session_state.get('documents_df', None)
+            if self.is_initialized and current_docs is not None and len(current_docs) > 0:
+                st.subheader("📊 Uploaded Documents")
+                total_docs = current_docs['file_name'].nunique()
+                total_chunks = len(current_docs)
+                total_pages = current_docs['page_number'].sum()
+                
+                st.metric("📄 Documents", total_docs)
+                st.metric("📄 Pages", total_pages)
+                st.metric("🔢 Text Chunks", total_chunks)
+                
+                # Show uploaded file names
+                with st.expander("📋 Uploaded Files", expanded=False):
+                    for file_name in current_docs['file_name'].unique():
+                        file_chunks = len(current_docs[current_docs['file_name'] == file_name])
+                        st.write(f"• **{file_name}** ({file_chunks} chunks)")
+            elif self.is_initialized:
                 st.subheader("📊 Document Statistics")
-                total_docs = self.documents_df['file_name'].nunique()
-                total_chunks = len(self.documents_df)
-                st.metric("Documents", total_docs)
-                st.metric("Text Chunks", total_chunks)
+                st.info("No documents uploaded yet")
             
             # PDF Upload Section
             st.subheader("📁 Upload PDFs")
@@ -443,7 +491,10 @@ class Phase5StreamlitApp:
             if uploaded_files:
                 if st.button("Process Uploaded PDFs", type="secondary"):
                     if self.upload_and_process_pdfs(uploaded_files):
-                        st.rerun()  # Refresh the app after successful upload
+                        st.success("🎉 Documents processed successfully! You can now search and summarize.")
+                        # Force a rerun to update the interface
+                        time.sleep(1)  # Small delay to show success message
+                        st.rerun()
             
             # LLM Status
             st.subheader("🤖 LLM Status")
@@ -464,8 +515,18 @@ class Phase5StreamlitApp:
             st.info("Please initialize the system first using the sidebar.")
             return
         
+        # Check if documents are loaded (use session state for accuracy)
+        current_docs = st.session_state.get('documents_df', None)
+        if current_docs is None or len(current_docs) == 0:
+            st.info("📋 Please upload PDF documents using the sidebar to get started.")
+            st.markdown("### 🔼 How to use:")
+            st.markdown("1. **Upload PDFs**: Use the file uploader in the sidebar")
+            st.markdown("2. **Get Suggestions**: See auto-generated queries based on your documents")
+            st.markdown("3. **Search & Summarize**: Ask questions about your uploaded content")
+            return
+        
         # Query input with enhanced auto-suggestions
-        st.header("🔍 Search & Summarize")
+        st.header("🔍 Search & Summarize Your Documents")
         
         col1, col2 = st.columns([3, 1])
         
@@ -529,6 +590,11 @@ class Phase5StreamlitApp:
         
         # Search and summarize
         if st.button("🚀 Search & Summarize", type="primary") and query.strip():
+            current_docs = st.session_state.get('documents_df', None)
+            if current_docs is None or len(current_docs) == 0:
+                st.error("❌ No documents uploaded. Please upload PDF documents first.")
+                return
+                
             with st.spinner("Processing your query..."):
                 result = self.search_and_summarize(query, search_type, top_k, summary_type)
                 
@@ -581,7 +647,7 @@ class Phase5StreamlitApp:
         search_results.sort(key=lambda x: x.get('accuracy_score', 0), reverse=True)
         
         # Display total results found
-        st.info(f"Found {len(search_results)} relevant documents (sorted by accuracy)")
+        st.info(f"Found {len(search_results)} relevant chunks from your uploaded documents (sorted by accuracy)")
         
         # Enhanced pagination
         results_per_page = 3

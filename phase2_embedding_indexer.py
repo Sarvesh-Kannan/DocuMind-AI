@@ -114,14 +114,24 @@ class Phase2EmbeddingIndexer:
     def build_tfidf_index(self, texts: List[str]):
         """
         Build TF-IDF vectorizer and matrix for keyword search
+        Only builds if there are 2+ documents
         
         Args:
             texts: List of text strings
         """
+        num_docs = len(texts)
+        
+        # Skip TF-IDF for small document sets (< 2 documents)
+        if num_docs < 2:
+            logger.info(f"Skipping TF-IDF index: only {num_docs} document(s), need at least 2")
+            self.tfidf_vectorizer = None
+            self.tfidf_matrix = None
+            return
+        
         logger.info("Building TF-IDF index")
         
         try:
-            # Create TF-IDF vectorizer
+            # Create TF-IDF vectorizer with standard parameters
             self.tfidf_vectorizer = TfidfVectorizer(
                 max_features=10000,
                 stop_words='english',
@@ -136,7 +146,9 @@ class Phase2EmbeddingIndexer:
             logger.info(f"TF-IDF index built: {self.tfidf_matrix.shape}")
         except Exception as e:
             logger.error(f"Failed to build TF-IDF index: {e}")
-            raise e
+            # Set to None on failure so search falls back to semantic only
+            self.tfidf_vectorizer = None
+            self.tfidf_matrix = None
     
     def build_faiss_index(self, embeddings: np.ndarray):
         """
@@ -162,6 +174,16 @@ class Phase2EmbeddingIndexer:
             logger.error(f"Failed to build FAISS index: {e}")
             raise e
     
+    def _ensure_indexes_loaded(self):
+        """Ensure indexes are loaded in memory"""
+        if (self.faiss_index is None or self.documents is None or 
+            self.semantic_model is None or self.semantic_embeddings is None):
+            logger.info("Indexes not loaded in memory, attempting to load from disk")
+            if not self.load_indexes():
+                logger.error("Failed to load indexes from disk")
+                return False
+        return True
+
     def semantic_search(self, query: str, top_k: int = TOP_K_RESULTS) -> List[Dict]:
         """
         Perform semantic search using FAISS
@@ -173,9 +195,14 @@ class Phase2EmbeddingIndexer:
         Returns:
             List of search results with semantic similarity scores
         """
-        if self.faiss_index is None or self.documents is None:
-            logger.error("FAISS index not loaded")
+        # Ensure indexes are loaded
+        if not self._ensure_indexes_loaded():
+            logger.error("FAISS index not available")
             return []
+            
+        # Ensure semantic model is loaded
+        if self.semantic_model is None:
+            self.load_semantic_model()
         
         try:
             # Generate query embedding
@@ -193,7 +220,7 @@ class Phase2EmbeddingIndexer:
             # Create results
             results = []
             for sim, idx in zip(similarities[0], indices[0]):
-                if sim >= SIMILARITY_THRESHOLD and idx != -1:
+                if sim >= SIMILARITY_THRESHOLD and idx != -1 and idx < len(self.documents):
                     doc = self.documents.iloc[idx].to_dict()
                     results.append({
                         'document': doc,
@@ -204,6 +231,7 @@ class Phase2EmbeddingIndexer:
                         'page_number': doc.get('page_number', 0)
                     })
             
+            logger.info(f"Semantic search returned {len(results)} results for query: '{query}'")
             return results[:top_k]
         except Exception as e:
             logger.error(f"Semantic search failed: {e}")
@@ -220,8 +248,13 @@ class Phase2EmbeddingIndexer:
         Returns:
             List of search results with keyword similarity scores
         """
-        if self.tfidf_vectorizer is None or self.tfidf_matrix is None or self.documents is None:
-            logger.error("TF-IDF index not loaded")
+        # Ensure indexes are loaded
+        if not self._ensure_indexes_loaded():
+            logger.error("Indexes not available")
+            return []
+            
+        if self.tfidf_vectorizer is None or self.tfidf_matrix is None:
+            logger.info("TF-IDF index not available (semantic-only mode)")
             return []
         
         try:
@@ -232,12 +265,12 @@ class Phase2EmbeddingIndexer:
             similarities = cosine_similarity(query_vector, self.tfidf_matrix).flatten()
             
             # Get top indices
-            top_indices = np.argsort(similarities)[::-1][:top_k]
+            top_indices = np.argsort(similarities)[::-1][:top_k * 2]  # Get more candidates
             
             # Create results
             results = []
             for idx in top_indices:
-                if similarities[idx] >= SIMILARITY_THRESHOLD:
+                if idx < len(self.documents) and similarities[idx] > 0:  # Lower threshold for keyword search
                     doc = self.documents.iloc[idx].to_dict()
                     results.append({
                         'document': doc,
@@ -248,7 +281,8 @@ class Phase2EmbeddingIndexer:
                         'page_number': doc.get('page_number', 0)
                     })
             
-            return results
+            logger.info(f"Keyword search returned {len(results)} results for query: '{query}'")
+            return results[:top_k]
         except Exception as e:
             logger.error(f"Keyword search failed: {e}")
             return []
@@ -256,6 +290,7 @@ class Phase2EmbeddingIndexer:
     def hybrid_search(self, query: str, top_k: int = TOP_K_RESULTS) -> List[Dict]:
         """
         Perform hybrid search combining semantic and keyword search
+        Falls back to semantic-only if TF-IDF is not available
         
         Args:
             query: Search query
@@ -265,11 +300,33 @@ class Phase2EmbeddingIndexer:
             List of search results with hybrid scores
         """
         try:
-            # Perform both searches
+            # Always perform semantic search
             semantic_results = self.semantic_search(query, top_k * 2)
-            keyword_results = self.keyword_search(query, top_k * 2)
             
-            # Create document ID to result mapping
+            # Only perform keyword search if TF-IDF is available
+            keyword_results = []
+            if self.tfidf_vectorizer is not None and self.tfidf_matrix is not None:
+                keyword_results = self.keyword_search(query, top_k * 2)
+                logger.info(f"Hybrid search: {len(semantic_results)} semantic + {len(keyword_results)} keyword results")
+            else:
+                logger.info(f"Semantic-only search: {len(semantic_results)} results (TF-IDF not available)")
+            
+            # If no results from semantic search, return empty
+            if not semantic_results:
+                logger.warning("No results from semantic search")
+                return []
+            
+            # If only semantic results available, return them with semantic scores as final scores
+            if not keyword_results:
+                for result in semantic_results:
+                    result['score'] = result.get('semantic_similarity', 0)
+                    result['hybrid_score'] = result['score']
+                
+                final_results = semantic_results[:top_k]
+                logger.info(f"Semantic-only search returned {len(final_results)} final results")
+                return final_results
+            
+            # Create document ID to result mapping for hybrid scoring
             semantic_map = {f"{r['file_name']}_{r['chunk_id']}": r for r in semantic_results}
             keyword_map = {f"{r['file_name']}_{r['chunk_id']}": r for r in keyword_results}
             
@@ -291,11 +348,15 @@ class Phase2EmbeddingIndexer:
                 result = semantic_map.get(doc_id, keyword_map.get(doc_id))
                 if result:
                     result['hybrid_score'] = hybrid_score
+                    result['score'] = hybrid_score  # Add unified score field
                     hybrid_results.append(result)
             
             # Sort by hybrid score and return top_k
             hybrid_results.sort(key=lambda x: x['hybrid_score'], reverse=True)
-            return hybrid_results[:top_k]
+            final_results = hybrid_results[:top_k]
+            
+            logger.info(f"Hybrid search returned {len(final_results)} final results")
+            return final_results
         except Exception as e:
             logger.error(f"Hybrid search failed: {e}")
             return []
@@ -342,16 +403,26 @@ class Phase2EmbeddingIndexer:
                 faiss.write_index(self.faiss_index, str(self.faiss_index_file))
                 logger.info(f"Saved FAISS index: {self.faiss_index_file}")
             
-            # Save TF-IDF matrix and vectorizer
+            # Save TF-IDF matrix and vectorizer (only if they exist)
             if self.tfidf_matrix is not None:
                 with open(self.tfidf_file, 'wb') as f:
                     pickle.dump(self.tfidf_matrix, f)
                 logger.info(f"Saved TF-IDF matrix: {self.tfidf_file}")
+            else:
+                # Remove TF-IDF file if it exists but we don't have a matrix
+                if self.tfidf_file.exists():
+                    self.tfidf_file.unlink()
+                    logger.info("Removed old TF-IDF matrix file")
             
             if self.tfidf_vectorizer is not None:
                 with open(self.tfidf_vectorizer_file, 'wb') as f:
                     pickle.dump(self.tfidf_vectorizer, f)
                 logger.info(f"Saved TF-IDF vectorizer: {self.tfidf_vectorizer_file}")
+            else:
+                # Remove TF-IDF vectorizer file if it exists but we don't have a vectorizer
+                if self.tfidf_vectorizer_file.exists():
+                    self.tfidf_vectorizer_file.unlink()
+                    logger.info("Removed old TF-IDF vectorizer file")
             
             # Save metadata
             if self.documents is not None:
@@ -372,14 +443,13 @@ class Phase2EmbeddingIndexer:
             True if loading was successful, False otherwise
         """
         try:
-            # Check if files exist
-            required_files = [
-                self.embeddings_file, self.faiss_index_file, 
-                self.tfidf_file, self.tfidf_vectorizer_file, self.metadata_file
+            # Check if core files exist (embeddings, faiss, metadata are required)
+            core_files = [
+                self.embeddings_file, self.faiss_index_file, self.metadata_file
             ]
             
-            if not all(f.exists() for f in required_files):
-                logger.info("Index files not found, need to build them")
+            if not all(f.exists() for f in core_files):
+                logger.info("Core index files not found, need to build them")
                 return False
             
             logger.info("Loading indexes from disk")
@@ -392,14 +462,19 @@ class Phase2EmbeddingIndexer:
             self.faiss_index = faiss.read_index(str(self.faiss_index_file))
             logger.info(f"Loaded FAISS index: {self.faiss_index.ntotal} vectors")
             
-            # Load TF-IDF matrix and vectorizer
-            with open(self.tfidf_file, 'rb') as f:
-                self.tfidf_matrix = pickle.load(f)
-            logger.info(f"Loaded TF-IDF matrix: {self.tfidf_matrix.shape}")
-            
-            with open(self.tfidf_vectorizer_file, 'rb') as f:
-                self.tfidf_vectorizer = pickle.load(f)
-            logger.info("Loaded TF-IDF vectorizer")
+            # Load TF-IDF matrix and vectorizer (optional - may not exist for small datasets)
+            if self.tfidf_file.exists() and self.tfidf_vectorizer_file.exists():
+                with open(self.tfidf_file, 'rb') as f:
+                    self.tfidf_matrix = pickle.load(f)
+                logger.info(f"Loaded TF-IDF matrix: {self.tfidf_matrix.shape}")
+                
+                with open(self.tfidf_vectorizer_file, 'rb') as f:
+                    self.tfidf_vectorizer = pickle.load(f)
+                logger.info("Loaded TF-IDF vectorizer")
+            else:
+                self.tfidf_matrix = None
+                self.tfidf_vectorizer = None
+                logger.info("TF-IDF files not found - using semantic search only")
             
             # Load metadata
             with open(self.metadata_file, 'rb') as f:
@@ -409,7 +484,12 @@ class Phase2EmbeddingIndexer:
             # Load semantic model
             self.load_semantic_model()
             
-            logger.info(f"Loaded indexes: {self.faiss_index.ntotal} vectors, {self.tfidf_matrix.shape[0]} documents")
+            # Log final status
+            if self.tfidf_matrix is not None:
+                logger.info(f"Loaded indexes: {self.faiss_index.ntotal} vectors, {self.tfidf_matrix.shape[0]} documents")
+            else:
+                logger.info(f"Loaded indexes: {self.faiss_index.ntotal} vectors, semantic-only mode")
+            
             return True
             
         except Exception as e:

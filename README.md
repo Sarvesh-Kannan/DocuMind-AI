@@ -401,13 +401,30 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **PyMuPDF**: For PDF processing
 - **Hugging Face**: For transformer models
 
+## 📚 Documentation
+
+### 📋 **Comprehensive Technical Report**
+**[COMPREHENSIVE_SYSTEM_REPORT.md](COMPREHENSIVE_SYSTEM_REPORT.md)** - Complete 742-line technical documentation including:
+- 📊 **Data Pre-processing**: Methodology & justification for PDF extraction, text cleaning, and intelligent chunking
+- 🔍 **Search & Summarization**: Adaptive hybrid search, semantic embeddings, TF-IDF fusion, and RAG pipeline
+- 📈 **Evaluation Framework**: ROUGE scores, retrieval metrics, performance benchmarks, and quality assessment
+- 🚧 **Challenges & Solutions**: TF-IDF optimization, session state management, LLM response cleaning, and index persistence
+- 🎯 **Performance Analytics**: Real-world usage data, scalability analysis, and system optimization
+- 🚀 **Future Roadmap**: Multi-modal support, enhanced features, and technical improvements
+
+### 📖 **Additional Resources**
+- [UPLOAD_ONLY_SYSTEM_GUIDE.md](UPLOAD_ONLY_SYSTEM_GUIDE.md) - Upload-only system functionality guide
+- Individual phase documentation within each Python module
+- Configuration parameters detailed in `config.py`
+
 ## 📞 Support
 
 For questions or issues:
 1. Check the troubleshooting section
-2. Review the configuration options
-3. Open an issue on GitHub
-4. Contact the development team
+2. Review the configuration options  
+3. Consult the comprehensive technical report
+4. Open an issue on GitHub
+5. Contact the development team
 
 ---
 

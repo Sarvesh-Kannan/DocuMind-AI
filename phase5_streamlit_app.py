@@ -318,7 +318,9 @@ class Phase5StreamlitApp:
         if not self.is_initialized:
             return {'error': 'System not initialized'}
         
-        if self.documents_df is None or self.documents_df.empty:
+        # Check current documents from session state
+        current_docs = st.session_state.get('documents_df', None)
+        if current_docs is None or len(current_docs) == 0:
             return {'error': 'No documents uploaded. Please upload PDF documents first.'}
         
         start_time = time.time()

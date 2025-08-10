@@ -1,0 +1,17 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+sentence-transformers==2.2.2
+transformers==4.30.0
+torch==2.2.0+cpu --find-links https://download.pytorch.org/whl/torch_stable.html
+faiss-cpu==1.7.4
+scikit-learn==1.3.2
+PyMuPDF==1.23.8
+nltk==3.8.1
+rouge-score==0.1.2
+pandas==2.1.3
+numpy==1.24.4
+requests==2.31.0
+psutil==5.9.6
+aiofiles==23.2.1 

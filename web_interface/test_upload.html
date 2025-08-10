@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuMind AI - Test Upload</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-8">
+        <h1 class="text-3xl font-bold mb-8">DocuMind AI - Upload Test</h1>
+        
+        <div class="bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-semibold mb-4">Upload PDF Files</h2>
+            
+            <form id="upload-form" enctype="multipart/form-data">
+                <input type="file" id="file-input" name="files" multiple accept=".pdf" 
+                       class="mb-4 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                
+                <button type="submit" id="upload-btn" 
+                        class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Upload & Process
+                </button>
+            </form>
+            
+            <div id="status" class="mt-4 p-4 rounded hidden"></div>
+            <div id="progress" class="mt-4 hidden">
+                <div class="bg-gray-200 rounded-full h-2">
+                    <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+                </div>
+                <p id="progress-text" class="text-sm text-gray-600 mt-2">Processing...</p>
+            </div>
+        </div>
+        
+        <div class="bg-white p-6 rounded-lg shadow mt-8">
+            <h2 class="text-xl font-semibold mb-4">Test Search</h2>
+            
+            <div class="flex space-x-4">
+                <input type="text" id="search-input" placeholder="Enter your query..." 
+                       class="flex-1 px-3 py-2 border border-gray-300 rounded">
+                <button id="search-btn" 
+                        class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                    Search
+                </button>
+            </div>
+            
+            <div id="search-results" class="mt-4"></div>
+        </div>
+    </div>
+
+    <script>
+        const apiUrl = 'http://localhost:8080/api';
+        
+        // Upload functionality
+        document.getElementById('upload-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('file-input');
+            const status = document.getElementById('status');
+            const progress = document.getElementById('progress');
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+            
+            if (!fileInput.files.length) {
+                showStatus('Please select files first', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            Array.from(fileInput.files).forEach(file => {
+                formData.append('files', file);
+            });
+            
+            progress.classList.remove('hidden');
+            progressBar.style.width = '20%';
+            progressText.textContent = 'Uploading files...';
+            
+            try {
+                const response = await fetch(`${apiUrl}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                progressBar.style.width = '60%';
+                progressText.textContent = 'Processing documents...';
+                
+                if (!response.ok) {
+                    throw new Error(`Upload failed: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                progressBar.style.width = '100%';
+                progressText.textContent = 'Complete!';
+                
+                showStatus(`Successfully uploaded ${fileInput.files.length} file(s)`, 'success');
+                fileInput.value = '';
+                
+                setTimeout(() => {
+                    progress.classList.add('hidden');
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Upload error:', error);
+                showStatus('Upload failed: ' + error.message, 'error');
+                progress.classList.add('hidden');
+            }
+        });
+        
+        // Search functionality
+        document.getElementById('search-btn').addEventListener('click', async () => {
+            const query = document.getElementById('search-input').value.trim();
+            const results = document.getElementById('search-results');
+            
+            if (!query) {
+                showStatus('Please enter a search query', 'error');
+                return;
+            }
+            
+            results.innerHTML = '<p class="text-gray-500">Searching...</p>';
+            
+            try {
+                const response = await fetch(`${apiUrl}/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        search_type: 'hybrid',
+                        top_k: 5,
+                        summary_type: 'medium',
+                        target_language: 'english'
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Search failed: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayResults(data);
+                
+            } catch (error) {
+                console.error('Search error:', error);
+                results.innerHTML = `<p class="text-red-500">Search failed: ${error.message}</p>`;
+            }
+        });
+        
+        function displayResults(data) {
+            const results = document.getElementById('search-results');
+            const summary = data.summary || {};
+            const searchResults = data.search_results || [];
+            
+            let html = '';
+            
+            if (summary.summary) {
+                html += `
+                    <div class="bg-blue-50 p-4 rounded mb-4">
+                        <h3 class="font-bold text-blue-800 mb-2">Summary:</h3>
+                        <p class="text-blue-700">${summary.summary}</p>
+                    </div>
+                `;
+            }
+            
+            if (searchResults.length > 0) {
+                html += '<h3 class="font-bold mb-2">Search Results:</h3>';
+                searchResults.forEach((result, index) => {
+                    const accuracy = (result.accuracy_score || 0) * 100;
+                    html += `
+                        <div class="bg-gray-50 p-3 rounded mb-2">
+                            <div class="font-medium">${result.file_name || 'Document'} - ${accuracy.toFixed(1)}% match</div>
+                            <div class="text-sm text-gray-600">${result.text ? result.text.substring(0, 200) + '...' : 'No preview'}</div>
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<p class="text-gray-500">No results found.</p>';
+            }
+            
+            results.innerHTML = html;
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.className = `mt-4 p-4 rounded ${type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`;
+            status.textContent = message;
+            status.classList.remove('hidden');
+            
+            setTimeout(() => {
+                status.classList.add('hidden');
+            }, 5000);
+        }
+        
+        // Check system status on load
+        fetch(`${apiUrl}/status`)
+            .then(r => r.json())
+            .then(data => {
+                console.log('System status:', data);
+                showStatus(`System ready - ${data.documents_count} documents, ${data.chunks_count} chunks`, 'success');
+            })
+            .catch(e => {
+                console.error('Status check failed:', e);
+                showStatus('Backend connection failed', 'error');
+            });
+    </script>
+</body>
+</html>

@@ -496,6 +496,40 @@ class Phase2EmbeddingIndexer:
             logger.error(f"Error loading indexes: {e}")
             return False
     
+    
+    def clear_indexes(self):
+        """Clear all indexes and embeddings for upload-only mode"""
+        try:
+            logger.info("🔄 Clearing indexes and embeddings...")
+            
+            # Clear in-memory data
+            self.semantic_model = None
+            self.tfidf_vectorizer = None
+            self.faiss_index = None
+            self.documents = None
+            self.tfidf_matrix = None
+            self.semantic_embeddings = None
+            
+            # Clear files on disk
+            files_to_clear = [
+                self.embeddings_file,
+                self.faiss_index_file,
+                self.tfidf_file,
+                self.tfidf_vectorizer_file,
+                self.metadata_file
+            ]
+            
+            for file_path in files_to_clear:
+                if file_path.exists():
+                    file_path.unlink()
+                    logger.info(f"🗑️  Deleted: {file_path.name}")
+            
+            logger.info("✅ All indexes and embeddings cleared")
+            
+        except Exception as e:
+            logger.error(f"❌ Error clearing indexes: {e}")
+            raise e
+
     def get_statistics(self) -> Dict:
         """Get statistics about the indexes"""
         if self.faiss_index is None:

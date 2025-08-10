@@ -431,3 +431,4 @@ For questions or issues:
 **Built with ❤️ for efficient document search and summarization using local AI**
 
 **Complete 5-phase system with advanced RAG capabilities and local LLM integration** 
+ 

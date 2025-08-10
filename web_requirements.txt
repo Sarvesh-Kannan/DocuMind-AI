@@ -1,0 +1,22 @@
+# Web Interface Backend Requirements
+# Additional dependencies for the FastAPI web interface
+
+# Core web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# File upload handling
+python-multipart>=0.0.6
+
+# Data validation
+pydantic>=2.4.0
+
+# Async support
+asyncio-mqtt>=0.11.1
+
+# CORS middleware (already included in FastAPI)
+# Development tools (optional)
+watchfiles>=0.21.0  # For auto-reload in development
+
+# Note: All other requirements are already covered in requirements.txt
+# This file only adds the web interface specific dependencies 

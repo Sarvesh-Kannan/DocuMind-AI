@@ -1,53 +1,83 @@
 """
-Configuration for Document Search and Summarization System
+Configuration settings for DocuMind AI System
 """
 import os
-from pathlib import Path
 
-# Project paths
-PROJECT_ROOT = Path(__file__).parent
-DATA_DIR = PROJECT_ROOT / "arxiv_papers"
-EMBEDDINGS_DIR = PROJECT_ROOT / "embeddings"
-MODELS_DIR = PROJECT_ROOT / "models"
-RESULTS_DIR = PROJECT_ROOT / "results"
-
-# Create directories
-for dir_path in [EMBEDDINGS_DIR, MODELS_DIR, RESULTS_DIR]:
-    dir_path.mkdir(exist_ok=True)
-
-# Phase 1: Data Processing
-CHUNK_SIZE = 512  # tokens
-CHUNK_OVERLAP = 100  # tokens
-SUPPORTED_FORMATS = [".pdf"]
-
-# Phase 2: Embedding & Indexing
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# Basic Configuration
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 100
 EMBEDDING_DIMENSION = 384
-TOP_K_RESULTS = 5
-SIMILARITY_THRESHOLD = 0.1  # Lowered for better retrieval
-HYBRID_WEIGHT_SEMANTIC = 0.7
-HYBRID_WEIGHT_KEYWORD = 0.3
+MAX_CONTEXT_LENGTH = 2048
 
-# Phase 3: Local LLM
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "deepseek-r1:8b"
-MAX_SUMMARY_LENGTH = 200
+# File Processing
+SUPPORTED_FILE_TYPES = ['pdf']
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
+# Search Configuration
+SIMILARITY_THRESHOLD = 0.1
+DEFAULT_TOP_K = 5
+SEARCH_TYPES = ["semantic", "keyword", "hybrid"]
+
+# Ollama Configuration
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-r1:8b")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))  # seconds
+
+# Summary Configuration
 SUMMARY_TYPES = ["short", "medium", "long"]
 SUMMARY_LENGTHS = {
-    "short": 100,
-    "medium": 200,
-    "long": 300
+    "short": 25,      # Extremely concise, 1 sentence only
+    "medium": 100,    # Moderate response, 3-4 sentences
+    "long": 300       # Comprehensive explanation, 6-8 sentences
+}
+MAX_SUMMARY_LENGTH = 400
+
+# Translation Configuration (Sarvam API)
+SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "sk_inm4n58r_4NIPBvcjjYMhCZ1ryEXAOgqP")
+SARVAM_BASE_URL = os.getenv("SARVAM_BASE_URL", "https://api.sarvam.ai/translate")
+SARVAM_TIMEOUT = int(os.getenv("SARVAM_TIMEOUT", "30"))  # seconds
+
+# Supported Indian languages for translation
+SUPPORTED_LANGUAGES = {
+    "english": "en-IN",
+    "hindi": "hi-IN",
+    "bengali": "bn-IN",
+    "gujarati": "gu-IN",
+    "kannada": "kn-IN",
+    "malayalam": "ml-IN",
+    "marathi": "mr-IN",
+    "oriya": "od-IN",
+    "punjabi": "pa-IN",
+    "tamil": "ta-IN",
+    "telugu": "te-IN"
 }
 
-# Phase 4: Evaluation
-TEST_SET_RATIO = 0.2
-EVALUATION_METRICS = ["rouge-1", "rouge-2", "rouge-l"]
+# Model Configuration
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+FALLBACK_EMBEDDING_MODEL = "sentence-transformers/paraphrase-MiniLM-L3-v2"
 
-# Processing
-BATCH_SIZE = 8
-NUM_WORKERS = 4
-DEVICE = "cuda" if os.environ.get("CUDA_VISIBLE_DEVICES") else "cpu"
+# Performance Configuration
+BATCH_SIZE = 32
+MAX_CONCURRENT_REQUESTS = 10
 
-# Logging
-LOG_LEVEL = "INFO"
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" 
+# Evaluation Configuration
+EVALUATION_METRICS = ["precision", "recall", "mrr", "rouge", "semantic_similarity"]
+PERFORMANCE_METRICS = ["response_time", "memory_usage", "accuracy"]
+
+# Storage Configuration
+DATA_DIR = "data"
+EMBEDDINGS_DIR = os.path.join(DATA_DIR, "embeddings")
+MODELS_DIR = os.path.join(DATA_DIR, "models")
+
+# Logging Configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Security Configuration
+CORS_ORIGINS = ["*"]  # In production, specify your frontend domain
+MAX_UPLOAD_FILES = 10
+
+# Feature Flags
+ENABLE_TRANSLATION = True
+ENABLE_EVALUATION = True
+ENABLE_CACHING = True 

@@ -3,7 +3,10 @@
 
 class DocuMindApp {
     constructor() {
-        this.apiUrl = 'http://localhost:8080/api';
+        // Use environment variable or default to local development
+        this.apiUrl = window.location.hostname === 'localhost' 
+            ? 'http://localhost:8080/api' 
+            : 'https://your-backend-url.herokuapp.com/api';
         this.isSystemInitialized = false;
         this.currentDocuments = [];
         this.currentSuggestions = [];

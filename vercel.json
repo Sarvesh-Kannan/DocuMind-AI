@@ -1,31 +1,8 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "backend_api.py",
-      "use": "@vercel/python"
+      "source": "/(.*)",
+      "destination": "/web_interface/index.html"
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/backend_api.py"
-    },
-    {
-      "src": "/static/(.*)",
-      "dest": "/web_interface/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/web_interface/index.html"
-    }
-  ],
-  "functions": {
-    "backend_api.py": {
-      "maxDuration": 60
-    }
-  },
-  "env": {
-    "PYTHONPATH": "."
-  }
+  ]
 } 
